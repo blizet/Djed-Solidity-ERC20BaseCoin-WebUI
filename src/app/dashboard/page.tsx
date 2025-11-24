@@ -1,11 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useAccount, useReadContract } from 'wagmi';
+import { useState } from 'react';
+import { useReadContract } from 'wagmi';
 import { formatUnits } from 'viem';
 import { 
   TrendingUp, 
-  TrendingDown, 
   DollarSign, 
   Shield, 
   Activity,
@@ -16,13 +15,12 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { 
-  Card, 
-  CardContent, 
-  CardDescription, 
-  CardHeader, 
+  CardContent,
+  CardDescription,
+  CardHeader,
   CardTitle,
   Button,
-  Loading
+  GlowCard
 } from '@/components/ui';
 import DJED_ABI from '@/utils/abi/Djed.json';
 import COIN_ABI from '@/utils/abi/Coin.json';
@@ -30,8 +28,7 @@ import ORACLE_ABI from '@/utils/abi/IOracle.json';
 import { DJED_ADDRESS, STABLE_COIN_ADDRESS, RESERVE_COIN_ADDRESS, ORACLE_ADDRESS } from '@/utils/addresses';
 
 export default function Dashboard() {
-  const { address, isConnected } = useAccount();
-  const [refreshKey, setRefreshKey] = useState(0);
+  const [, setRefreshKey] = useState(0);
 
   // Read protocol data
   const { data: ratio, refetch: refetchRatio } = useReadContract({
@@ -47,7 +44,7 @@ export default function Dashboard() {
     args: [0n],
   });
 
-  const { data: liabilities, refetch: refetchLiabilities } = useReadContract({
+  const { refetch: refetchLiabilities } = useReadContract({
     address: DJED_ADDRESS,
     abi: DJED_ABI,
     functionName: 'L',
@@ -92,7 +89,7 @@ export default function Dashboard() {
   });
 
   // Read system-wide token supplies
-  const { data: stableCoinTotalSupply, refetch: refetchStableCoinTotalSupply } = useReadContract({
+  const { data: stablecoinTotalSupply, refetch: refetchStablecoinTotalSupply } = useReadContract({
     address: STABLE_COIN_ADDRESS,
     abi: COIN_ABI,
     functionName: 'totalSupply',
@@ -122,7 +119,7 @@ export default function Dashboard() {
     refetchFee();
     refetchTreasuryFee();
     refetchTxLimit();
-    refetchStableCoinTotalSupply();
+    refetchStablecoinTotalSupply();
     refetchReserveCoinTotalSupply();
     refetchBaseCoinAddress();
   };
@@ -148,6 +145,18 @@ export default function Dashboard() {
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
   };
 
+  const calculateLeverageRatio = (ratio: bigint | undefined) => {
+    if (!ratio) {
+      return '—';
+    }
+    const ratioPercent = parseFloat(formatUnits(ratio, 2));
+    const denominator = ratioPercent - 1;
+    if (denominator <= 0) {
+      return '—';
+    }
+    return (1 / denominator).toFixed(2);
+  };
+
   const getProtocolStatus = (ratio: bigint | undefined) => {
     if (!ratio) {
       return { label: 'Unknown', color: 'text-gray-500' };
@@ -166,26 +175,34 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Dashboard</h1>
-          <p className="text-muted-foreground">
-            Monitor Djed Protocol system health and analytics
-          </p>
-        </div>
-        <Button onClick={handleRefresh} variant="outline" size="sm">
-          <RefreshCw className="h-4 w-4 mr-2" />
-          Refresh
-        </Button>
+    <div className="relative min-h-screen overflow-hidden">
+      {/* Animated Background */}
+      <div className="fixed inset-0 -z-10">
+        <div className="absolute inset-0 bg-gradient-to-br from-background via-surface to-background" />
+        <div className="absolute top-0 left-1/4 w-96 h-96 bg-primary/5 rounded-full blur-3xl animate-pulse" />
+        <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-secondary/5 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
       </div>
+      
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold">Dashboard</h1>
+            <p className="text-muted-foreground">
+              Monitor Djed Protocol system health and analytics
+            </p>
+          </div>
+          <Button onClick={handleRefresh} variant="outline" size="sm">
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh
+          </Button>
+        </div>
 
       {/* Protocol Overview Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Card>
+        <GlowCard>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">StableCoin Price</CardTitle>
+            <CardTitle className="text-sm font-medium">Stablecoin Price</CardTitle>
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -194,9 +211,9 @@ export default function Dashboard() {
               Target: $1.00
             </p>
           </CardContent>
-        </Card>
+        </GlowCard>
 
-        <Card>
+        <GlowCard>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Reserve Ratio</CardTitle>
             <Shield className="h-4 w-4 text-muted-foreground" />
@@ -207,9 +224,9 @@ export default function Dashboard() {
               Protocol health indicator
             </p>
           </CardContent>
-        </Card>
+        </GlowCard>
 
-        <Card>
+        <GlowCard>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Reserves</CardTitle>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
@@ -220,24 +237,26 @@ export default function Dashboard() {
               BaseCoin reserves
             </p>
           </CardContent>
-        </Card>
+        </GlowCard>
 
-        <Card>
+        <GlowCard>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Liabilities</CardTitle>
-            <TrendingDown className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Leverage Ratio</CardTitle>
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatNumber(liabilities as bigint)}</div>
+            <div className="text-2xl font-bold">
+              {calculateLeverageRatio(ratio as bigint)}
+            </div>
             <p className="text-xs text-muted-foreground">
-              Outstanding StableCoins
+              1 / (Reserve Ratio - 1)
             </p>
           </CardContent>
-        </Card>
+        </GlowCard>
       </div>
 
       {/* System Token Supply */}
-      <Card>
+      <GlowCard>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <BarChart3 className="h-5 w-5" />
@@ -251,11 +270,11 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">StableCoins (SC)</span>
+                <span className="text-sm font-medium">Stablecoins (SC)</span>
                 <ArrowUpRight className="h-4 w-4 text-green-500" />
               </div>
               <div className="text-2xl font-bold">
-                {formatNumber(stableCoinTotalSupply as bigint)}
+                {formatNumber(stablecoinTotalSupply as bigint)}
               </div>
               <div className="text-sm text-muted-foreground">
                 Total supply in circulation
@@ -264,7 +283,7 @@ export default function Dashboard() {
 
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">ReserveCoins (RC)</span>
+                <span className="text-sm font-medium">Leveraged Yield Coins (LYC)</span>
                 <ArrowDownRight className="h-4 w-4 text-blue-500" />
               </div>
               <div className="text-2xl font-bold">
@@ -289,10 +308,10 @@ export default function Dashboard() {
             </div>
           </div>
         </CardContent>
-      </Card>
+      </GlowCard>
 
       {/* System Actions */}
-      <Card>
+      <GlowCard>
         <CardHeader>
           <CardTitle>System Actions</CardTitle>
           <CardDescription>
@@ -319,11 +338,11 @@ export default function Dashboard() {
             </Button>
           </div>
         </CardContent>
-      </Card>
+      </GlowCard>
 
       {/* Protocol Health & Analytics */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <Card>
+        <GlowCard>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <BarChart3 className="h-5 w-5" />
@@ -340,7 +359,7 @@ export default function Dashboard() {
                 <span className="text-sm">{formatPrice(oraclePrice as bigint)}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">ReserveCoin Target Price</span>
+                <span className="text-sm font-medium">Leveraged Yield Coin Target Price</span>
                 <span className="text-sm">{formatPrice(rcTargetPrice as bigint)}</span>
               </div>
               <div className="flex items-center justify-between">
@@ -351,9 +370,9 @@ export default function Dashboard() {
               </div>
             </div>
           </CardContent>
-        </Card>
+        </GlowCard>
 
-        <Card>
+        <GlowCard>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Activity className="h-5 w-5" />
@@ -379,7 +398,8 @@ export default function Dashboard() {
               </div>
             </div>
           </CardContent>
-        </Card>
+        </GlowCard>
+      </div>
       </div>
     </div>
   );

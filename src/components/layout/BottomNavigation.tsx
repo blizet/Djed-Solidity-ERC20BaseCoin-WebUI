@@ -5,8 +5,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { 
   BarChart3, 
-  User,
-  TrendingUp
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -14,7 +12,7 @@ interface BottomNavigationProps {
   isConnected: boolean;
 }
 
-const BottomNavigation: React.FC<BottomNavigationProps> = ({ isConnected }) => {
+const BottomNavigation: React.FC<BottomNavigationProps> = ({ }) => {
   const pathname = usePathname();
 
   const navItems = [
@@ -24,18 +22,6 @@ const BottomNavigation: React.FC<BottomNavigationProps> = ({ isConnected }) => {
       label: "Dashboard",
       isActive: pathname === "/dashboard"
     },
-    {
-      href: "/trade",
-      icon: TrendingUp,
-      label: "Trade",
-      isActive: pathname === "/trade"
-    },
-    {
-      href: "/portfolio",
-      icon: User,
-      label: "Portfolio",
-      isActive: pathname === "/portfolio"
-    }
   ];
 
   return (

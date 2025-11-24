@@ -1,258 +1,406 @@
-'use client';
+"use client"
 
-import { useState } from 'react';
-import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
-import { parseUnits } from 'viem';
-import { 
-  Plus, 
-  TrendingUp, 
-  TrendingDown, 
-  DollarSign,
-  AlertCircle,
-  RefreshCw
-} from 'lucide-react';
-import { 
-  Card, 
-  CardContent, 
-  CardDescription, 
-  CardHeader, 
-  CardTitle,
-  Button,
-  Input,
-  Label,
-  Separator,
-  Alert,
-  AlertDescription
-} from '@/components/ui';
-import DJED_ABI from '@/utils/abi/Djed.json';
-import COIN_ABI from '@/utils/abi/Coin.json';
-import { DJED_ADDRESS, STABLE_COIN_ADDRESS, RESERVE_COIN_ADDRESS } from '@/utils/addresses';
+import { useEffect, useState } from "react"
+import { useAccount, useWriteContract, useWaitForTransactionReceipt, useChainId } from "wagmi"
+import { parseUnits } from "viem"
+import { Button } from "@/components/ui/button"
+import { MagneticButton, GlowCard } from "@/components/ui"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Wallet, CheckCircle, Zap } from "lucide-react"
+import { ConnectButton } from "@rainbow-me/rainbowkit"
+import { StableCoinFactoryABI } from "@/utils/abi/StableCoinFactory"
+import { StableCoinFactories, ZERO_ADDRESS } from "@/utils/addresses"
+import { toast } from "sonner"
 
-export default function CreatePosition() {
-  const { address, isConnected } = useAccount();
-  const [amount, setAmount] = useState('');
-  const [isCreating, setIsCreating] = useState(false);
-  const [selectedType, setSelectedType] = useState<'stable' | 'reserve'>('stable');
+import { Toaster } from "@/components/ui/sonner"
 
-  const { writeContract, data: hash, isPending, error } = useWriteContract();
-  
-  const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({
+interface ReactorConfig {
+  stablecoinName: string
+  baseAssetName: string
+  baseAssetSymbol: string
+  peggedAssetName: string
+  peggedAssetSymbol: string
+  baseToken: string
+  oracleAddress: string
+  priceId: string
+  treasury: string
+  criticalReserveRatio: string
+}
+
+export default function CreatePage() {
+  const { address, isConnected } = useAccount()
+  const chainId = useChainId()
+  const [config, setConfig] = useState<ReactorConfig>({
+    stablecoinName: "",
+    baseAssetName: "",
+    baseAssetSymbol: "",
+    peggedAssetName: "",
+    peggedAssetSymbol: "",
+    baseToken: "",
+    oracleAddress: "",
+    priceId: "",
+    treasury: address || "",
+    criticalReserveRatio: "400",
+  })
+
+  // Contract interaction
+  const { data: hash, isPending: isDeploying, writeContractAsync } = useWriteContract()
+
+
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
     hash,
-  });
+  })
 
-  const handleCreatePosition = async () => {
-    if (!amount || !address) return;
+  const updateConfig = (field: keyof ReactorConfig, value: string | number) => {
+    setConfig((prev) => ({ ...prev, [field]: value }))
+  }
 
-    setIsCreating(true);
-    try {
-      const amountBN = parseUnits(amount, 18);
-      
-      if (selectedType === 'stable') {
-        await writeContract({
-          address: DJED_ADDRESS,
-          abi: DJED_ABI,
-          functionName: 'buyStableCoins',
-          args: [amountBN, address],
-        });
-      } else {
-        await writeContract({
-          address: DJED_ADDRESS,
-          abi: DJED_ABI,
-          functionName: 'buyReserveCoins',
-          args: [amountBN, address],
-        });
-      }
-    } catch (error) {
-      console.error('Error creating position:', error);
-    } finally {
-      setIsCreating(false);
+  const [hasSetDefaultTreasury, setHasSetDefaultTreasury] = useState(false)
+
+  useEffect(() => {
+    if (isConnected && address && config.treasury === "" && !hasSetDefaultTreasury) {
+      setConfig((prev) => ({ ...prev, treasury: address }))
+      setHasSetDefaultTreasury(true)
     }
-  };
+  }, [isConnected, address, config.treasury, hasSetDefaultTreasury])
 
-  if (!isConnected) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 flex items-center justify-center p-4">
-        <Card className="w-full max-w-md">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <AlertCircle className="h-5 w-5 text-orange-500" />
-              Wallet Not Connected
-            </CardTitle>
-            <CardDescription>
-              Please connect your wallet to create a new position
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Alert>
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>
-                You need to connect your wallet to interact with the Djed protocol.
-              </AlertDescription>
-            </Alert>
-          </CardContent>
-        </Card>
-      </div>
-    );
+  const isFormValid = () => {
+    return config.stablecoinName &&
+           config.baseAssetName &&
+           config.baseAssetSymbol &&
+           config.peggedAssetName && 
+           config.peggedAssetSymbol && 
+           config.baseToken && 
+           config.oracleAddress &&
+           config.treasury &&
+           config.priceId &&
+           config.criticalReserveRatio
+  }
+
+  const handleDeploy = async () => {
+    if (!isConnected) {
+      toast.error("Please connect your wallet first")
+      return
+    }
+
+    if (!writeContractAsync) {
+      toast.error("Contract write function not available")
+      return
+    }
+
+    if (!isFormValid()) {
+      toast.error("Please fill in all required fields")
+      return
+    }
+
+    const factoryAddress = StableCoinFactories[chainId as keyof typeof StableCoinFactories]
+
+    if (!factoryAddress || factoryAddress === ZERO_ADDRESS) {
+      toast.error("Unsupported network. Please switch to a supported network.")
+      return
+    }
+
+    const stablecoinName = config.stablecoinName.trim()
+    if (!stablecoinName) {
+      toast.error("Stablecoin name cannot be empty")
+      return
+    }
+
+    const baseAssetName = config.baseAssetName.trim()
+    if (!baseAssetName) {
+      toast.error("Base asset name cannot be empty")
+      return
+    }
+
+    const baseAssetSymbol = config.baseAssetSymbol.trim()
+    if (!baseAssetSymbol) {
+      toast.error("Base asset symbol cannot be empty")
+      return
+    }
+
+    const peggedAssetName = config.peggedAssetName.trim()
+    if (!peggedAssetName) {
+      toast.error("Stable token name cannot be empty")
+      return
+    }
+
+    const peggedAssetSymbol = config.peggedAssetSymbol.trim()
+    if (!peggedAssetSymbol) {
+      toast.error("Stable token symbol cannot be empty")
+      return
+    }
+
+    const baseToken = config.baseToken.trim()
+    if (!/^0x[0-9a-fA-F]{40}$/.test(baseToken)) {
+      toast.error("Base token must be a 20-byte checksum address")
+      return
+    }
+
+    const oracleAddress = config.oracleAddress.trim()
+    if (!/^0x[0-9a-fA-F]{40}$/.test(oracleAddress)) {
+      toast.error("Oracle address must be a 20-byte checksum address")
+      return
+    }
+
+    const trimmedPriceId = config.priceId.trim()
+    if (!/^0x[0-9a-fA-F]{64}$/.test(trimmedPriceId)) {
+      toast.error("Price feed ID must be a 32-byte hex value")
+      return
+    }
+
+    const treasuryAddress = config.treasury.trim()
+    if (!/^0x[0-9a-fA-F]{40}$/.test(treasuryAddress)) {
+      toast.error("Treasury address must be a 20-byte checksum address")
+      return
+    }
+
+    const ratioValue = Number(config.criticalReserveRatio)
+    if (Number.isNaN(ratioValue) || ratioValue < 100) {
+      toast.error("Critical reserve ratio must be at least 100%")
+      return
+    }
+
+    const criticalReserveRatioWad = parseUnits((ratioValue / 100).toString(), 18)
+    if (criticalReserveRatioWad < parseUnits("1", 18)) {
+      toast.error("Critical reserve ratio must be at least 100%")
+      return
+    }
+
+    const account = address as `0x${string}`
+
+    try {
+      await writeContractAsync({
+        account,
+        address: factoryAddress,
+        abi: StableCoinFactoryABI,
+        functionName: 'deployReactor',
+        args: [
+          stablecoinName,
+          baseAssetName,
+          baseAssetSymbol,
+          peggedAssetName,
+          peggedAssetSymbol,
+          baseToken as `0x${string}`,
+          oracleAddress as `0x${string}`,
+          trimmedPriceId as `0x${string}`,
+          "Reserve Coin",
+          "RC",
+          treasuryAddress as `0x${string}`,
+          BigInt(5000000000000000), // 0.5% fission fee (0.005e18)
+          BigInt(5000000000000000), // 0.5% fusion fee (0.005e18)
+          criticalReserveRatioWad
+        ]
+      })
+    } catch (error) {
+      console.error("Deployment error:", error)
+      toast.error("Failed to deploy reactor")
+    }
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 p-4">
-      <div className="max-w-4xl mx-auto space-y-8">
-        {/* Header */}
-        <div className="text-center space-y-4">
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-orange-600 to-orange-500 bg-clip-text text-transparent">
-            Create New Position
-          </h1>
-          <p className="text-slate-600 dark:text-slate-400 max-w-2xl mx-auto">
-            Start your journey with the Djed protocol by creating a new position. 
-            Choose between StableCoins or ReserveCoins based on your strategy.
-          </p>
+    <div className="relative min-h-screen overflow-hidden">
+      <Toaster />
+      {/* Animated Background */}
+      <div className="fixed inset-0 -z-10">
+        <div className="absolute inset-0 bg-gradient-to-br from-background via-surface to-background" />
+        <div className="absolute top-0 left-1/4 w-96 h-96 bg-primary/5 rounded-full blur-3xl animate-pulse" />
+        <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-secondary/5 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
+      </div>
+      
+      <div className="flex min-h-screen items-center justify-center px-4 py-16">
+        <div className="w-full max-w-3xl mx-auto">
+          <GlowCard>
+            <div className="relative overflow-hidden rounded-3xl bg-surface-elevated/80 backdrop-blur-xl">
+              <div className="flex items-center justify-between border-b border-border px-8 py-6">
+                <div className="flex items-center gap-4">
+                  <Zap className="w-5 h-5 text-primary" />
+                  <h2 className="text-lg uppercase tracking-widest text-primary dark:text-foreground">
+                    Create a New Stablecoin
+                  </h2>
+                </div>
+              </div>
+              
+              <div className="grid gap-10 p-8">
+  
+                {!isConnected && (
+                  <div className="flex items-center gap-3 rounded-lg border border-dashed border-border bg-surface p-4 text-secondary">
+                    <Wallet className="h-5 w-5" />
+                    <span className="text-sm font-semibold">
+                      Connect your wallet to authorize deployment.
+                    </span>
+                  </div>
+                )}
+  
+                <div className="grid gap-8">
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium text-muted-foreground">Stablecoin Name</Label>
+                    <Input
+                      placeholder="e.g., Digital Dollar"
+                      value={config.stablecoinName}
+                      onChange={(e) => updateConfig("stablecoinName", e.target.value)}
+                    />
+                  </div>
+  
+                  <div className="grid gap-6 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium text-muted-foreground">Base Asset Name</Label>
+                      <Input
+                        placeholder="e.g., Bitcoin Reserve"
+                        value={config.baseAssetName}
+                        onChange={(e) => updateConfig("baseAssetName", e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium text-muted-foreground">Base Asset Symbol</Label>
+                      <Input
+                        placeholder="e.g., BTC"
+                        value={config.baseAssetSymbol}
+                        onChange={(e) => updateConfig("baseAssetSymbol", e.target.value.toUpperCase())}
+                      />
+                    </div>
+                  </div>
+  
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium text-muted-foreground">Base Token (Collateral)</Label>
+                    <Input
+                      placeholder="Enter the ERC20 token address"
+                      value={config.baseToken}
+                      onChange={(e) => updateConfig("baseToken", e.target.value)}
+                    />
+                  </div>
+  
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium text-muted-foreground">Oracle Address</Label>
+                    <Input
+                      placeholder="Enter the oracle contract address"
+                      value={config.oracleAddress}
+                      onChange={(e) => updateConfig("oracleAddress", e.target.value)}
+                    />
+                  </div>
+  
+                  <div className="grid gap-6 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium text-muted-foreground">Critical Reserve Ratio (%)</Label>
+                      <Input
+                        type="number"
+                        min={100}
+                        step={1}
+                        placeholder="e.g., 400"
+                        value={config.criticalReserveRatio}
+                        onChange={(e) => updateConfig("criticalReserveRatio", e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium text-muted-foreground">Price Feed ID</Label>
+                      <Input
+                        value={config.priceId}
+                        placeholder="Enter the 32-byte price feed ID"
+                        onChange={(e) => updateConfig("priceId", e.target.value)}
+                      />
+                    </div>
+                  </div>
+  
+                  <div className="grid gap-6 md:grid-cols-2">
+                    <div className="space-y-3">
+                      <p className="text-sm font-semibold text-primary">Stable Token</p>
+                      <Input
+                        placeholder="e.g., Digital Dollar"
+                        value={config.peggedAssetName}
+                        onChange={(e) => updateConfig("peggedAssetName", e.target.value)}
+                      />
+                      <Input
+                        placeholder="e.g., DUSD"
+                        value={config.peggedAssetSymbol}
+                        onChange={(e) => updateConfig("peggedAssetSymbol", e.target.value.toUpperCase())}
+                      />
+                    </div>
+                  </div>
+  
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium text-muted-foreground">Treasury (Fee Recipient)</Label>
+                    <Input
+                      placeholder="Enter the treasury address"
+                      value={config.treasury}
+                      onChange={(e) => updateConfig("treasury", e.target.value)}
+                    />
+                  </div>
+                </div>
+  
+                <div className="space-y-4">
+                  <ConnectButton.Custom>
+                    {({ account, chain, openConnectModal, openChainModal, mounted }) => {
+                      const ready = mounted
+                      const connected = ready && account && chain
+  
+                      if (!ready) {
+                        return (
+                          <MagneticButton className="w-full" disabled>
+                            Loading Wallet...
+                          </MagneticButton>
+                        )
+                      }
+  
+                      if (!connected) {
+                        return (
+                          <MagneticButton className="w-full" onClick={openConnectModal}>
+                            Connect Wallet
+                          </MagneticButton>
+                        )
+                      }
+  
+                      if (chain?.unsupported) {
+                        return (
+                          <Button
+                            variant="destructive"
+                            className="w-full"
+                            onClick={openChainModal}
+                          >
+                            Unsupported Network
+                          </Button>
+                        )
+                      }
+  
+                      return (
+                        <Button
+                          className="gradient-button w-full"
+                          onClick={handleDeploy}
+                          disabled={!isFormValid() || isDeploying || isConfirming}
+                        >
+                          {isDeploying
+                            ? "Deploying..."
+                            : isConfirming
+                            ? "Confirming..."
+                            : "Deploy Reactor"}
+                        </Button>
+                      )
+                    }}
+                  </ConnectButton.Custom>
+
+                {isSuccess && (
+                  <div className="rounded-lg border border-success/30 bg-success/10 p-4 text-success">
+                    <div className="flex items-center gap-3">
+                      <CheckCircle className="h-5 w-5" />
+                      <div>
+                        <div className="font-semibold">Reactor Deployed Successfully</div>
+                        <a
+                          href={`YOUR_EXPLORER_URL/${hash}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-1 block text-xs text-success/80 hover:underline"
+                        >
+                          Transaction Hash: {hash}
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                )}
+            </div>
+            </div>
+            </div>
+          </GlowCard>
         </div>
-
-        {/* Position Type Selection */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Plus className="h-5 w-5" />
-              Position Type
-            </CardTitle>
-            <CardDescription>
-              Choose the type of position you want to create
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div
-                className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
-                  selectedType === 'stable'
-                    ? 'border-orange-500 bg-orange-50 dark:bg-orange-900/20'
-                    : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
-                }`}
-                onClick={() => setSelectedType('stable')}
-              >
-                <div className="flex items-center gap-3">
-                  <TrendingUp className="h-6 w-6 text-green-500" />
-                  <div>
-                    <h3 className="font-semibold">StableCoins</h3>
-                    <p className="text-sm text-slate-600 dark:text-slate-400">
-                      Stable value pegged to base currency
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div
-                className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
-                  selectedType === 'reserve'
-                    ? 'border-orange-500 bg-orange-50 dark:bg-orange-900/20'
-                    : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
-                }`}
-                onClick={() => setSelectedType('reserve')}
-              >
-                <div className="flex items-center gap-3">
-                  <TrendingDown className="h-6 w-6 text-blue-500" />
-                  <div>
-                    <h3 className="font-semibold">ReserveCoins</h3>
-                    <p className="text-sm text-slate-600 dark:text-slate-400">
-                      Variable value based on protocol performance
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Position Details */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <DollarSign className="h-5 w-5" />
-              Position Details
-            </CardTitle>
-            <CardDescription>
-              Configure your position parameters
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="amount">Amount (ETH)</Label>
-              <Input
-                id="amount"
-                type="number"
-                placeholder="0.0"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                className="text-lg"
-              />
-              <p className="text-sm text-slate-600 dark:text-slate-400">
-                Enter the amount of ETH you want to use for this position
-              </p>
-            </div>
-
-            <Separator />
-
-            <div className="space-y-4">
-              <h4 className="font-semibold">Position Summary</h4>
-              <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-lg space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-slate-600 dark:text-slate-400">Position Type:</span>
-                  <span className="font-medium">
-                    {selectedType === 'stable' ? 'StableCoins' : 'ReserveCoins'}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-600 dark:text-slate-400">Amount:</span>
-                  <span className="font-medium">{amount || '0'} ETH</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-600 dark:text-slate-400">Estimated Tokens:</span>
-                  <span className="font-medium">
-                    {amount ? (parseFloat(amount) * 1000).toFixed(2) : '0'} {selectedType === 'stable' ? 'SC' : 'RC'}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <Button
-              onClick={handleCreatePosition}
-              disabled={!amount || isCreating || isPending || isConfirming}
-              className="w-full bg-gradient-to-r from-orange-600 to-orange-500 hover:from-orange-700 hover:to-orange-600"
-              size="lg"
-            >
-              {isCreating || isPending || isConfirming ? (
-                <>
-                  <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                  {isPending ? 'Confirming...' : isConfirming ? 'Processing...' : 'Creating...'}
-                </>
-              ) : (
-                <>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Create Position
-                </>
-              )}
-            </Button>
-
-            {error && (
-              <Alert>
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>
-                  Error creating position: {error.message}
-                </AlertDescription>
-              </Alert>
-            )}
-
-            {isConfirmed && (
-              <Alert>
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>
-                  Position created successfully! Transaction hash: {hash}
-                </AlertDescription>
-              </Alert>
-            )}
-          </CardContent>
-        </Card>
       </div>
     </div>
-  );
+  )
 }
